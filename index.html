@@ -2070,7 +2070,7 @@ function openSub(s){
 function flash(id){
   const el=document.getElementById(id); if(!el)return;
   setTimeout(()=>{
-    el.scrollIntoView({behavior:"smooth",block:"center"});
+    try{ if(el.scrollIntoView)el.scrollIntoView({behavior:"smooth",block:"center"}) }catch(e){}
     el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash");
   },120);
 }
@@ -2227,7 +2227,7 @@ document.getElementById("paSave").onclick=async()=>{
     const i=PORT.findIndex(p=>p.name===paEditName);
     if(i>=0){
       const oldName=PORT[i].name;
-      PORT[i]={name:n,type:paType,val:v,qty:q};
+      PORT[i]={name:n,type:paType,val:v,usd:usd,qty:q};
       if(oldName!==n){
         CONV.forEach(c=>{if(c.from===oldName)c.from=n; if(c.to===oldName)c.to=n});
         SAV.entries.forEach(s=>{if(s.from===oldName)s.from=n});
