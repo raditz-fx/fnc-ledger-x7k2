@@ -829,6 +829,14 @@ textarea.ta:focus{outline:none;border-color:var(--line2)}
       <input class="inp" id="tutQ" type="search" placeholder="Cari panduan… (misal: konversi, tabungan, kas)" autocomplete="off">
       <div id="tutList" style="margin-top:12px"></div>
     </div>
+    <div class="card" style="margin-top:20px">
+      <div class="ch"><h3>Data member saja</h3><span class="pill">untuk tim</span></div>
+      <p class="hint" style="padding:0 0 12px">Khusus bertukar data member dengan Yudhis atau Alip. Hanya daftar member yang dipindah — transaksi, aset, hutang, dan tabungan tidak ikut dan tidak akan tertimpa.</p>
+      <button class="btn ghost" id="memCopy" style="width:100%;margin:0">Salin data member</button>
+      <label style="margin-top:14px">Tempel data member dari tim</label>
+      <textarea class="inp" id="memPaste" style="min-height:90px;font-family:'IBM Plex Mono';font-size:11px" placeholder='{"memOnly":true,"mem":[…]}'></textarea>
+      <button class="btn" id="memGo" style="width:100%;margin:12px 0 0">Masukkan data member</button>
+    </div>
     <button class="btn danger" id="wipe">Hapus semua data</button>
     <div style="height:20px"></div>
   </section>
@@ -906,6 +914,22 @@ textarea.ta:focus{outline:none;border-color:var(--line2)}
         <input class="inp" id="maNote" placeholder="Status, hasil follow up…" autocomplete="off">
         <button class="btn" id="maSave" style="width:100%;margin:15px 0 0">Simpan member</button>
       
+  </div>
+  <div style="height:calc(16px + env(safe-area-inset-bottom))"></div>
+</div></div>
+<div class="sheet" id="mvsheet"><div class="sheetin">
+  <div class="grab"></div><h4 id="mvTitle">Pindahkan aset</h4>
+  <div style="padding:0 20px">
+    <div class="stat2" style="border:0"><span class="n">Dari</span><span class="v" id="mvFrom">—</span></div>
+    <label style="margin-top:8px">Tujuan</label>
+    <div class="sel"><button class="selbtn ph" id="mvToBtn"><span class="cv">Pilih tujuan</span></button></div>
+    <label style="margin-top:11px" id="mvLbl">Jumlah</label>
+    <input class="inp num" id="mvAmt" inputmode="decimal" placeholder="0" autocomplete="off">
+    <div class="hint" style="padding:7px 0 0" id="mvHint"></div>
+    <div class="dact" style="padding:14px 0 4px">
+      <button id="mvMax">Semua</button>
+      <button class="pri" id="mvGo">Pindahkan</button>
+    </div>
   </div>
   <div style="height:calc(16px + env(safe-area-inset-bottom))"></div>
 </div></div>
@@ -1396,6 +1420,40 @@ function laporanHut(nama){
   return s;
 }
 
+
+/* ═══════ PINDAH ASET (antar dompet) ═══════ */
+let mvSrc=null, mvTo="";
+const PRESET=["Futures crypto","USDT Spot","Kas rekening BCA"];
+function openHoldDetail(name){
+  const p=PORT.find(x=>x.name===name); if(!p)return;
+  dCur={type:"hold",nama:name};
+  const rows=[["Jenis",p.type],["Nilai",rp(pVal(p))]];
+  if(p.usd)rows.push(["Jumlah USD",p.usd.toLocaleString("id-ID",{maximumFractionDigits:2})+" USD"],["Kurs",rp(KURS)]);
+  if(p.qty)rows.push(["Keterangan",p.qty]);
+  rows.push(["Porsi",(asetTotal()?(pVal(p)/asetTotal()*100).toFixed(1).replace(".",","):0)+"% dari total aset"]);
+  showD(p.name,p.type,rp(pVal(p)),"jade",rows,
+    [["Ubah",()=>{closeD();editAsset(name)}],
+     ["Hapus",async()=>{ if(!confirm("Hapus aset "+name+"?"))return;
+        PORT=PORT.filter(x=>x.name!==name); await DB.save(); closeD(); toast("Aset dihapus"); render(); }],
+     ["Pindahkan",()=>{closeD();openMove(name)},true]], false);
+}
+function openMove(from){
+  const p=PORT.find(x=>x.name===from); if(!p)return;
+  mvSrc=p; mvTo="";
+  document.getElementById("mvTitle").textContent="Pindahkan dari "+p.name;
+  document.getElementById("mvFrom").textContent=(p.usd?p.usd.toLocaleString("id-ID",{maximumFractionDigits:2})+" USD · ":"")+rp(pVal(p));
+  document.getElementById("mvLbl").textContent=p.usd?"Jumlah USD":"Nominal (Rp)";
+  document.getElementById("mvAmt").value="";
+  document.getElementById("mvHint").textContent="";
+  setBtn("mvToBtn","Pilih tujuan",true);
+  document.getElementById("mvsheet").classList.add("on");
+}
+function mvTargets(){
+  const ada=PORT.map(x=>x.name).filter(n=>n!==(mvSrc&&mvSrc.name));
+  const baru=PRESET.filter(n=>!PORT.some(p=>p.name===n)&&n!==(mvSrc&&mvSrc.name)).map(n=>n+"  (buat baru)");
+  return ada.concat(baru);
+}
+
 /* ═══════ PANDUAN ═══════ */
 const TUTOR=[
  ["Ringkas","Saldo tersedia","Angka besar di atas adalah total aset likuid — kas rekening + USDT + futures. Ini uang yang benar-benar kamu pegang sekarang, BUKAN penghasilan bulan ini. Saldo berkurang otomatis kalau kamu setor ke tabungan."],
@@ -1518,32 +1576,53 @@ async function potongGaji(nama){
 let wCur=null, wTone="santai";
 const TONE=["Gaya santai","Formal","Tegas"];
 function waMsg(m,tone){
-  const nm=m.nama.replace(/\(.*?\)/,"").trim();
+  const nm=m.nama.replace(/\(.*?\)/g,"").trim();
   const sisa=rp(m.sisa);
   const cic=m.cicilan&&m.cicilan!=="—"?m.cicilan:"";
   const due=m.due?dfmt(m.due):"";
-  const macet=["MACET","TIDAK RESPON"].includes(m.status);
-  const lunas=m.sisa<=0;
-  if(lunas){
-    if(tone==="Formal")return "Halo "+nm+",\n\nTerima kasih, pembayaran untuk paket "+m.paket+" sudah kami terima dan tercatat LUNAS.\n\nAkses komunitas tetap aktif. Kalau ada kendala di materi atau sesi live, silakan hubungi saya kapan saja.\n\nSalam,\nRadit — FNC Academy";
-    return "Halo "+nm+" 🙏\n\nPembayaran "+m.paket+"-nya udah LUNAS ya, makasih banyak! ✅\n\nAkses komunitas tetap jalan. Kalau ada kendala materi atau mau nanya-nanya soal analisa, langsung chat aja.\n\nSemangat terus 🚀";
+  const ADM="\n\nKami perlu konfirmasi pembayarannya, bisa kirim ss chat terakhir dan juga transaksi pembayaran serta konfirmasi paketnya. (Hiraukan chat ini, langsung hubungi nomor admin utama)\n\nNomor admin utama: wa.me/6287747550081";
+
+  // 1. perlu verifikasi status — dicek DULUAN
+  if(m.status==="PERLU CEK")
+    return "Halo "+nm+" 🙏\n\nAku lagi rapiin data member FNC. Boleh dibantu konfirmasi:\n• Paket yang kamu ambil apa ya?\n• Masih aktif ikut komunitas atau lagi rehat?\n\nKita lagi migrasi ke grup baru, jadi aku mau pastiin datamu benar."+ADM;
+
+  // 2. sudah keluar / paket habis
+  if(m.status==="DIKICK")
+    return "Halo "+nm+" 🙏\n\nAksesmu ke grup FNC sudah kami tutup karena tidak ada kelanjutan pembayaran.\n\nKalau menurutmu ini keliru atau kamu mau melanjutkan, kabari ya."+ADM;
+  if(m.status==="EXPIRED"||(m.masa&&/^\d{4}-\d{2}-\d{2}$/.test(m.masa)&&m.masa<ymd(new Date())))
+    return "Halo "+nm+" 🙏\n\nMasa aktif paket "+m.paket+"-mu sudah habis"+(m.masa?" ("+dfmt(m.masa)+")":"")+".\n\nMau lanjut perpanjang atau upgrade ke paket panjang? Aku bantu carikan yang paling cocok."+ADM;
+  if(m.status==="BERJANGKA"&&m.masa)
+    return "Halo "+nm+" 🙏\n\nMasa aktif paket "+m.paket+"-mu berakhir "+dfmt(m.masa)+".\n\nKalau mau lanjut, kabari sebelum tanggal itu ya biar aksesnya nggak putus."+ADM;
+
+  // 3. rehat / admin
+  if(m.status==="REHAT")
+    return "Halo "+nm+" 🙏\n\nCuma mau tanya kabar, udah lama nggak keliatan di grup. Semoga baik-baik aja.\n\nKalau ada kendala, santai — cerita aja. Nggak usah buru-buru balik.";
+  if(m.status==="ADMIN")
+    return "Halo "+nm+" 🙏\n\nMau koordinasi soal data member FNC nih. Ada yang perlu dibahas?";
+
+  // 4. sudah lunas
+  if(m.sisa<=0){
+    if(tone==="Formal")return "Halo "+nm+",\n\nTerima kasih, pembayaran untuk paket "+m.paket+" sudah kami terima dan tercatat LUNAS.\n\nAkses komunitas tetap aktif. Silakan hubungi kami bila ada kendala.\n\nSalam,\nRadit — FNC Academy";
+    return "Halo "+nm+" 🙏\n\nPembayaran "+m.paket+"-nya udah LUNAS ya, makasih banyak ✅\n\nAkses komunitas tetap jalan. Kalau ada kendala materi atau mau nanya analisa, langsung chat aja 🚀";
   }
-  if(m.status==="PERLU CEK"){
-    return "Halo "+nm+" 🙏\n\nAku lagi rapiin data member FNC nih. Boleh dibantu konfirmasi:\n• Paket yang kamu ambil apa ya?\n• Masih aktif ikut komunitas atau lagi rehat?\n\nSoalnya kita lagi migrasi ke grup baru, jadi aku mau pastiin datamu bener. Makasih ya!";
+
+  // 5. macet
+  if(["MACET","TIDAK RESPON","TUNDA"].includes(m.status)){
+    if(tone==="Tegas")return "Halo "+nm+",\n\nAku udah beberapa kali coba hubungi tapi belum ada balasan. Sisa kewajibanmu di FNC Academy "+sisa+" untuk paket "+m.paket+".\n\nAda 3 opsi yang bisa dipilih:\n1. Cicil berapa pun yang sanggup, tanpa tenggat kaku\n2. Diskon pelunasan — bayar sebagian, sisanya dihapus\n3. Kalau sudah tidak lanjut, kabari aja, aku tutup datanya\n\nTolong balas yang mana pun 🙏"+ADM;
+    if(tone==="Formal")return "Halo "+nm+",\n\nMenindaklanjuti kewajiban pembayaran paket "+m.paket+" dengan sisa "+sisa+", kami belum menerima kabar dari Anda.\n\nKami membuka opsi penyesuaian skema apabila ada kendala."+ADM;
+    return "Halo "+nm+" 🙏\n\nAku cuma mau tanya kabar, udah lama nggak keliatan. Semoga baik-baik aja.\n\nKalau lagi ada kesulitan, santai — cerita aja. Soal sisa "+sisa+" bisa kita atur ulang skemanya."+ADM;
   }
-  if(macet){
-    if(tone==="Tegas")return "Halo "+nm+",\n\nAku udah beberapa kali coba hubungi tapi belum ada balasan. Sisa kewajibanmu di FNC Academy "+sisa+" untuk paket "+m.paket+".\n\nAku nggak mau ini jadi ganjalan buat kita berdua. Ada 3 opsi yang bisa dipilih:\n1. Cicil berapa pun yang sanggup, tanpa tenggat kaku\n2. Diskon pelunasan — bayar sebagian, sisanya aku hapus\n3. Kalau memang sudah tidak lanjut, kabari aja, aku tutup datanya\n\nTolong balas yang mana pun. Yang penting ada kejelasan 🙏";
-    if(tone==="Formal")return "Halo "+nm+",\n\nMenindaklanjuti kewajiban pembayaran paket "+m.paket+" dengan sisa "+sisa+", kami belum menerima kabar dari Anda.\n\nKami membuka opsi penyesuaian skema pembayaran apabila ada kendala. Mohon konfirmasinya agar kami dapat membantu mencarikan solusi.\n\nHormat kami,\nRadit — FNC Academy";
-    return "Halo "+nm+" 🙏\n\nAku cuma mau tanya kabar, udah lama nggak keliatan. Semoga semuanya baik-baik aja ya.\n\nKalau lagi ada kesulitan, santai — nggak usah sungkan cerita. Soal sisa "+sisa+" itu bisa kita atur ulang skemanya, yang penting ada kabar dulu 🙏";
+
+  // 6. diundur / geser
+  if(["DIUNDUR","GESER SEP","GESER NOV","DELAY"].includes(m.status)){
+    if(tone==="Formal")return "Halo "+nm+",\n\nMengingatkan, sisa pembayaran paket "+m.paket+" sebesar "+sisa+" dijadwalkan"+(due?" pada "+due:" bulan ini")+".\n\nApabila ada perubahan mohon dikabari."+ADM;
+    return "Halo "+nm+" 🙏\n\nReminder ringan aja, sisa pembayaran "+m.paket+"-nya "+sisa+(due?", rencananya "+due:"")+".\n\nKalau belum memungkinkan, santai — kabarin aja biar aku sesuaikan jadwalnya."+ADM;
   }
-  if(["DIUNDUR","GESER SEP","GESER NOV","DELAY","TUNDA"].includes(m.status)){
-    if(tone==="Formal")return "Halo "+nm+",\n\nSekadar mengingatkan, sisa pembayaran paket "+m.paket+" sebesar "+sisa+" dijadwalkan"+(due?" pada "+due:" bulan ini")+".\n\nApabila ada perubahan, mohon kabari agar kami dapat menyesuaikan catatan.\n\nTerima kasih,\nRadit — FNC Academy";
-    return "Halo "+nm+" 🙏\n\nReminder ringan aja ya, sisa pembayaran "+m.paket+"-nya "+sisa+(due?", rencananya "+due:"")+".\n\nKalau belum memungkinkan bulan ini, santai — kabarin aja biar aku sesuaikan jadwalnya. Nggak buru-buru 🙏";
-  }
-  // normal / komit
-  if(tone==="Formal")return "Halo "+nm+",\n\nBerikut rincian pembayaran paket "+m.paket+" Anda:\n• Sisa tagihan : "+sisa+(cic?"\n• Cicilan/bulan : "+cic:"")+(due?"\n• Jatuh tempo : "+due:"")+"\n\nMohon konfirmasi apabila pembayaran sudah dilakukan, agar dapat kami catat. Terima kasih atas kepercayaannya pada FNC Academy.\n\nHormat kami,\nRadit";
-  if(tone==="Tegas")return "Halo "+nm+",\n\nSisa tagihan paket "+m.paket+": "+sisa+(due?"\nJatuh tempo: "+due:"")+(cic?"\nCicilan bulan ini: "+cic:"")+"\n\nMohon dibantu diselesaikan sesuai kesepakatan. Kalau ada kendala, kabari sekarang biar bisa dicari jalan keluarnya — jangan didiamkan 🙏";
-  return "Halo "+nm+" 🙏\n\nMau ingetin soal cicilan "+m.paket+"-nya ya:\n• Sisa tagihan: "+sisa+(cic?"\n• Cicilan bulan ini: "+cic:"")+(due?"\n• Target bayar: "+due:"")+"\n\nKalau udah transfer tinggal kirim buktinya aja, nanti aku catat. Kalau ada kendala juga santai, kabarin aja biar bisa diatur 🙏\n\nMakasih ya!";
+
+  // 7. aktif / komit
+  if(tone==="Formal")return "Halo "+nm+",\n\nBerikut rincian pembayaran paket "+m.paket+":\n• Sisa tagihan : "+sisa+(cic?"\n• Cicilan/bulan : "+cic:"")+(due?"\n• Jatuh tempo : "+due:"")+ADM;
+  if(tone==="Tegas")return "Halo "+nm+",\n\nSisa tagihan paket "+m.paket+": "+sisa+(due?"\nJatuh tempo: "+due:"")+(cic?"\nCicilan bulan ini: "+cic:"")+"\n\nMohon dibantu diselesaikan sesuai kesepakatan."+ADM;
+  return "Halo "+nm+" 🙏\n\nMau ingetin soal cicilan "+m.paket+"-nya:\n• Sisa tagihan: "+sisa+(cic?"\n• Cicilan bulan ini: "+cic:"")+(due?"\n• Target bayar: "+due:"")+ADM;
 }
 function openWA(nama){
   const m=MEM.find(x=>x.nama===nama); if(!m)return;
@@ -1912,8 +1991,7 @@ function renderPorto(){
   });
   box.querySelectorAll(".hold").forEach(el=>el.onclick=e=>{
     if(e.target.closest(".x"))return;
-    const nm=el.querySelector("[data-pn]").dataset.pn;
-    editAsset(nm);
+    openHoldDetail(el.querySelector("[data-pn]").dataset.pn);
   });
 }
 
@@ -2178,7 +2256,7 @@ document.getElementById("rangeBtn").onclick=()=>openSheet("Rentang",["Bulan ini"
   range_==="month"?"Bulan ini":range_==="last"?"Bulan lalu":"Semua",v=>{
   range_=v==="Bulan ini"?"month":v==="Bulan lalu"?"last":"all"; setBtn("rangeBtn",v); buildExport();});
 
-["amt","paVal","cvAmt","svAmt","svTarget"].forEach(id=>{
+["amt","paVal","cvAmt","svAmt","svTarget","maSisa","piVal","huPokok","huVal","dPayAmt","trfAmt"].forEach(id=>{
   document.getElementById(id).addEventListener("input",e=>{
     const v=e.target.value.replace(/\D/g,"");
     e.target.value=v?parseInt(v,10).toLocaleString("id-ID"):"";
@@ -2212,7 +2290,7 @@ document.getElementById("save").onclick=async()=>{
     document.getElementById("amt").value="";document.getElementById("note").value="";
     document.getElementById("whoTxt").value="";
     who="";setBtn("whoBtn","Pilih member",true);
-    toast("Tersimpan");
+    sOk(); toast("Tersimpan");
   }
   await DB.save(); render();
 };
@@ -2274,15 +2352,18 @@ document.getElementById("svTake").onclick=()=>doSav(-1);
 
 /* ═══════ nav ═══════ */
 document.querySelectorAll(".tabs button").forEach(b=>b.onclick=()=>{
+  sTab();
   if(editId&&b.dataset.p!=="add")clearEdit();
   if(paEditName&&b.dataset.p!=="aset")clearAssetEdit();
   openTab(b.dataset.p); window.scrollTo(0,0);
 });
 document.querySelectorAll("#asetTabs button").forEach(b=>b.onclick=()=>{
+  sTab();
   if(paEditName&&b.dataset.s!=="porto")clearAssetEdit();
   openSub(b.dataset.s);
 });
 function segWire(id,fn){document.querySelectorAll("#"+id+" button").forEach(b=>b.onclick=()=>{
+  sTab();
   document.querySelectorAll("#"+id+" button").forEach(x=>x.classList.remove("on"));b.classList.add("on");fn(b)})}
 segWire("viewSeg",b=>{view=b.dataset.v;
   document.getElementById("homeAll").style.display=view==="all"?"block":"none";
@@ -2447,6 +2528,108 @@ document.getElementById("lapCopy").onclick=()=>{
   copyText(t,"Laporan tersalin");
 };
 
+
+/* ── suara halus ── */
+let AC=null;
+function blip(f,d,g){
+  try{
+    if(!AC)AC=new (window.AudioContext||window.webkitAudioContext)();
+    if(AC.state==="suspended")AC.resume();
+    const o=AC.createOscillator(),v=AC.createGain();
+    o.type="sine"; o.frequency.value=f;
+    v.gain.setValueAtTime(0,AC.currentTime);
+    v.gain.linearRampToValueAtTime(g||0.05,AC.currentTime+0.008);
+    v.gain.exponentialRampToValueAtTime(0.0001,AC.currentTime+(d||0.09));
+    o.connect(v); v.connect(AC.destination);
+    o.start(); o.stop(AC.currentTime+(d||0.09)+0.02);
+  }catch(e){}
+}
+const sTab=()=>blip(660,0.07,0.035);
+const sOk =()=>{blip(880,0.06,0.045);setTimeout(()=>blip(1320,0.09,0.04),70)};
+const sErr=()=>blip(260,0.13,0.05);
+
+/* ── pindah aset ── */
+document.getElementById("mvsheet").onclick=e=>{ if(e.target.id==="mvsheet")e.currentTarget.classList.remove("on") };
+document.getElementById("mvToBtn").onclick=()=>openSheet("Pindahkan ke",mvTargets(),mvTo,v=>{
+  mvTo=v; setBtn("mvToBtn",v);
+  const isNew=v.includes("(buat baru)");
+  document.getElementById("mvHint").textContent=isNew?"Aset ini akan dibuat otomatis.":"";
+},true);
+document.getElementById("mvAmt").addEventListener("input",e=>{
+  if(!mvSrc)return;
+  if(mvSrc.usd){
+    const n=parseFloat(String(e.target.value).replace(",","."))||0;
+    document.getElementById("mvHint").textContent=n?(n+" USD = "+rp(Math.round(n*KURS))):"";
+  }else{
+    const v=e.target.value.replace(/\D/g,"");
+    e.target.value=v?parseInt(v,10).toLocaleString("id-ID"):"";
+  }
+});
+document.getElementById("mvMax").onclick=()=>{
+  if(!mvSrc)return;
+  document.getElementById("mvAmt").value=mvSrc.usd?mvSrc.usd:fmt(mvSrc.val||0);
+  document.getElementById("mvAmt").dispatchEvent(new Event("input"));
+};
+document.getElementById("mvGo").onclick=async()=>{
+  if(!mvSrc){return}
+  if(!mvTo){toast("Tujuan belum dipilih");sErr();return}
+  const isUsd=!!mvSrc.usd;
+  const raw=document.getElementById("mvAmt").value;
+  const amt=isUsd?(parseFloat(String(raw).replace(",","."))||0):(parseInt(String(raw).replace(/\D/g,""),10)||0);
+  if(!amt){toast("Jumlah belum diisi");sErr();return}
+  const punya=isUsd?mvSrc.usd:(mvSrc.val||0);
+  if(amt>punya+0.0001){toast("Melebihi saldo aset");sErr();return}
+  const namaTo=mvTo.replace("  (buat baru)","");
+  let dst=PORT.find(p=>p.name===namaTo);
+  if(!dst){
+    const tipe=/futures/i.test(namaTo)?"Futures":/usdt|stable/i.test(namaTo)?"Stablecoin":/kas|bca|rekening/i.test(namaTo)?"Kas rupiah":"Lainnya";
+    dst={name:namaTo,type:tipe,val:0,usd:isUsd?0:undefined,qty:""};
+    PORT.push(dst);
+  }
+  const dstUsd=(dst.usd!==undefined&&dst.usd!==null)||/futures|stable/i.test(dst.type);
+  if(isUsd){
+    mvSrc.usd=+(mvSrc.usd-amt).toFixed(4);
+    if(dstUsd)dst.usd=+((dst.usd||0)+amt).toFixed(4);
+    else dst.val=(dst.val||0)+Math.round(amt*KURS);
+  }else{
+    mvSrc.val=(mvSrc.val||0)-amt;
+    if(dstUsd)dst.usd=+((dst.usd||0)+amt/KURS).toFixed(4);
+    else dst.val=(dst.val||0)+amt;
+  }
+  const rpAmt=isUsd?Math.round(amt*KURS):amt;
+  CONV.push({id:Date.now()+"_mv",date:ymd(new Date()),from:mvSrc.name,to:dst.name,amt:rpAmt,
+    note:isUsd?(amt+" USD dipindah"):"pindah antar dompet"});
+  await DB.save();
+  document.getElementById("mvsheet").classList.remove("on");
+  sOk(); toast("Dipindah "+(isUsd?amt+" USD":rp(amt))+" ke "+dst.name); render();
+};
+
+/* ── tukar data member saja ── */
+document.getElementById("memCopy").onclick=()=>{
+  const p={memOnly:true,ts:new Date().toISOString(),count:MEM.length,mem:MEM};
+  copyText(JSON.stringify(p,null,1),"Data "+MEM.length+" member tersalin");
+  sOk();
+};
+document.getElementById("memGo").onclick=async()=>{
+  const t=document.getElementById("memPaste").value.trim();
+  if(!t){toast("Tempel dulu datanya");sErr();return}
+  let o;
+  try{ o=JSON.parse(t) }catch(e){ toast("Format tidak dikenali");sErr();return }
+  if(!o||!Array.isArray(o.mem)){toast("Ini bukan data member");sErr();return}
+  if(!o.memOnly){
+    if(!confirm("PERINGATAN\n\nIni file cadangan LENGKAP, bukan data member saja.\n\nKalau diteruskan, HANYA bagian member yang diambil. Transaksi, aset, hutang, dan tabungan kamu TIDAK akan berubah.\n\nLanjutkan?"))return;
+  }
+  if(o.tx||o.port||o.hut){
+    // pastikan tidak ada yang tertimpa
+  }
+  const jml=o.mem.length;
+  if(!confirm("Ganti daftar member dengan "+jml+" data dari tim?\n\nHanya daftar member yang berubah. Transaksi, aset, hutang, dan tabungan tetap utuh."))return;
+  MEM=o.mem; MEMV4=true;
+  await DB.save();
+  document.getElementById("memPaste").value="";
+  sOk(); toast("Data member diperbarui — "+jml+" member"); render();
+};
+
 /* ── piutang pribadi ── */
 let piEdit=null, piCara="Transfer";
 document.getElementById("piCaraBtn").onclick=()=>openSheet("Cara bayar",["Transfer","Potong gaji","Barter/lainnya"],piCara,
@@ -2591,6 +2774,7 @@ function openMemSub(s){
   document.getElementById("s-"+s).classList.add("on");
 }
 document.querySelectorAll("#memTabs button").forEach(b=>b.onclick=()=>{
+  sTab();
   if(maEdit&&b.dataset.s!=="daftar")clearMemForm();
   openMemSub(b.dataset.s); window.scrollTo(0,0);
 });
@@ -2604,9 +2788,6 @@ document.getElementById("msheet").onclick=e=>{ if(e.target.id==="msheet"){clearM
 segWire("mSeg",b=>{mFilt=b.dataset.m;
   document.querySelectorAll("#mSeg2 button").forEach(x=>x.classList.remove("on"));renderMember()});
 document.getElementById("dsheet").onclick=e=>{ if(e.target.id==="dsheet")closeD() };
-document.getElementById("dPayAmt").addEventListener("input",e=>{
-  const v=e.target.value.replace(/\D/g,""); e.target.value=v?parseInt(v,10).toLocaleString("id-ID"):"";
-});
 window.arsipMember=async function(nama){
   const m=MEM.find(x=>x.nama===nama); if(!m)return;
   if(!confirm("Arsipkan "+nama+"? Data tetap tersimpan untuk pembaruan Excel, tapi tidak muncul di daftar aktif."))return;
