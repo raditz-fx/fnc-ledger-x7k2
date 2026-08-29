@@ -183,6 +183,13 @@ label{display:block;font-family:"IBM Plex Mono";font-size:10px;letter-spacing:.1
 .wkhead .wl{font-family:"IBM Plex Mono";font-size:10.5px;letter-spacing:.1em;color:var(--mute);text-transform:uppercase}
 .wkhead .wv{font-family:"IBM Plex Mono";font-size:11.5px;font-weight:600}
 .daylbl{padding:9px 18px 4px;font-family:"IBM Plex Mono";font-size:10.5px;color:var(--mute)}
+.daylbl.sum{display:flex;align-items:baseline;justify-content:space-between}
+.daylbl .dv{font-size:11.5px;font-weight:600}
+.sumcard{margin:0 18px 10px;background:var(--surf);border:1px solid var(--line);border-radius:15px;padding:14px 15px}
+.sumcard .sl{display:flex;align-items:center;justify-content:space-between;margin-bottom:8px}
+.sumcard .st{font-family:"Instrument Sans";font-size:13px;font-weight:600;color:var(--ink)}
+.sumcard .sv{font-family:"IBM Plex Mono";font-size:23px;font-weight:600;letter-spacing:-.02em}
+.sumcard .sn{font-size:11.5px;color:var(--mute);margin-top:5px;line-height:1.5}
 .tx{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--line)}
 .tx .ic{width:32px;height:32px;border-radius:10px;display:grid;place-items:center;flex:0 0 32px;font-size:13px}
 .tx.in .ic{background:color-mix(in srgb,var(--jade) 15%,transparent);color:var(--jade)}
@@ -486,6 +493,14 @@ textarea.ta:focus{outline:none;border-color:var(--line2)}
       <button data-f="KOMUNITAS">Komunitas</button>
       <button data-f="PRIBADI">Pribadi</button>
     </div></div>
+    <div class="segwrap" style="margin-bottom:10px"><div class="seg" id="jenisSeg">
+      <button class="on" data-j="all">Semua</button>
+      <button data-j="in">Masuk</button>
+      <button data-j="out">Keluar</button>
+      <button data-j="conv">Konversi</button>
+      <button data-j="sav">Tabungan</button>
+    </div></div>
+    <div id="listSum" style="display:none"></div>
     <div id="listbox"></div>
   </section>
 
@@ -833,7 +848,11 @@ textarea.ta:focus{outline:none;border-color:var(--line2)}
       <div class="ch"><h3>Data member saja</h3><span class="pill">untuk tim</span></div>
       <p class="hint" style="padding:0 0 12px">Khusus bertukar data member dengan Yudhis atau Alip. Hanya daftar member yang dipindah — transaksi, aset, hutang, dan tabungan tidak ikut dan tidak akan tertimpa.</p>
       <button class="btn ghost" id="memCopy" style="width:100%;margin:0">Salin data member</button>
-      <label style="margin-top:14px">Tempel data member dari tim</label>
+      <button class="btn ghost" id="memFileDl" style="width:100%;margin:8px 0 0">Unduh file data member</button>
+      <p class="hint" style="padding:8px 0 0">Cara paling aman: unduh filenya, kirim di WhatsApp sebagai <b>dokumen</b> (bukan teks), lalu tim membukanya lewat tombol di bawah.</p>
+      <label style="margin-top:14px">Ambil data member dari file</label>
+      <input class="inp" id="memFile" type="file" accept=".json,application/json,text/plain">
+      <label style="margin-top:14px">Atau tempel data member dari tim</label>
       <textarea class="inp" id="memPaste" style="min-height:90px;font-family:'IBM Plex Mono';font-size:11px" placeholder='{"memOnly":true,"mem":[…]}'></textarea>
       <button class="btn" id="memGo" style="width:100%;margin:12px 0 0">Masukkan data member</button>
     </div>
@@ -1018,6 +1037,7 @@ let kind="in",ent="KOMUNITAS",view="all",filt="all",range_="month",spRange="mont
 let who="",cat="",asset="",paType="Stablecoin",cvFrom="",cvTo="",svFrom="",theme="dark";
 let MEMV4=false;
 let mFilt="all",expFmt="claude",dCur=null,mSub="daftar",inclConv=true,chartDays=30,KURS=17724;
+let jenis="all";  // filter jenis di tab Riwayat: all | in | out | conv | sav
 
 /* ═══════ storage ═══════ */
 const DB={
@@ -1029,7 +1049,7 @@ const DB={
     try{ return JSON.parse(raw) }catch(e){ return null }
   },
   async save(){
-    const s=JSON.stringify({tx:TX,port:PORT,conv:CONV,mem:MEM,piut:PIUT,hut:HUT,hutb:HUTB,kas:KAS,sav:SAV,theme:theme,inclConv:inclConv,kurs:KURS,memv:4});
+    const s=JSON.stringify({tx:TX,port:PORT,conv:CONV,mem:MEM,piut:PIUT,hut:HUT,hutb:HUTB,kas:KAS,sav:SAV,theme:theme,inclConv:inclConv,kurs:KURS,memv:4,saved:true});
     try{ if(window.storage){ await window.storage.set("fnc_ledger_v3",s) } }catch(e){}
     try{ localStorage.setItem("fnc_ledger_v3",s) }catch(e){}
   }
@@ -1055,7 +1075,8 @@ function sums(list){
   const o=list.filter(t=>t.k==="out").reduce((a,b)=>a+b.amt,0);
   return {i,o,net:i-o};
 }
-const pVal=p=>p.usd?Math.round(p.usd*KURS):(p.val||0);
+const isUsdAsset=p=>!!p&&(p.cur?p.cur==="usd":!!p.usd);
+const pVal=p=>isUsdAsset(p)?Math.round((p.usd||0)*KURS):(p.val||0);
 const asetTotal=()=>PORT.reduce((a,b)=>a+pVal(b),0);
 const savTotal=()=>SAV.entries.reduce((a,b)=>a+b.amt,0);
 function pct(now,prev){ if(!prev)return null; return (now-prev)/Math.abs(prev)*100 }
@@ -1070,10 +1091,14 @@ function deltaEl(el,now,prev,tapKind){
   if(tapKind){el.onclick=()=>explainDelta(tapKind)}
 }
 function bumpAsset(name,delta){
-  if(!name||name===OUTSIDE)return;
+  if(!name||name===OUTSIDE||!delta)return;
   const i=PORT.findIndex(p=>p.name===name);
-  if(i>=0)PORT[i].val=Math.max(0,PORT[i].val+delta);
-  else if(delta>0)PORT.push({name,type:"Lainnya",val:delta,qty:""});
+  if(i<0){ if(delta>0)PORT.push({name,type:"Lainnya",val:delta,qty:"",usd:0,cur:"idr"}); return }
+  const p=PORT[i];
+  // aset berdenominasi USD harus diubah di kolom usd, bukan val
+  if(isUsdAsset(p)) p.usd=+(((p.usd||0)+delta/KURS).toFixed(4));
+  else p.val=(p.val||0)+delta;
+  // tidak dipaksa ke 0: kalau minus berarti ada catatan yang salah, harus kelihatan
 }
 const assetNames=()=>PORT.map(p=>p.name);
 
@@ -1810,7 +1835,7 @@ function renderHome(){
   document.getElementById("hBal").textContent=rp(bal);
   deltaEl(document.getElementById("hDelta"),c.net,p.net,"all");
   document.getElementById("hNote").textContent="arus bersih "+(c.net<0?"−":"+")+short(Math.abs(c.net))+" bulan ini";
-  const cvM=CONV.filter(x=>inMonth(x,0));
+  const cvM=CONV.filter(x=>inMonth(x,0)&&!x.adj);
   const cvIn=cvM.filter(x=>x.from===OUTSIDE).reduce((a,b)=>a+b.amt,0);
   const cvInt=cvM.filter(x=>x.from!==OUTSIDE&&x.to!==OUTSIDE).reduce((a,b)=>a+b.amt,0);
   const cvOut=cvM.filter(x=>x.to===OUTSIDE).reduce((a,b)=>a+b.amt,0);
@@ -1839,7 +1864,7 @@ function renderHome(){
     const pre=E==="KOMUNITAS"?"k":"p";
     const cc=sums(cur.filter(t=>t.ent===E)), pp=sums(prev.filter(t=>t.ent===E));
     if(E==="PRIBADI"&&inclConv){ cc.i+=cvIn; cc.o+=cvOut; cc.net=cc.i-cc.o;
-      const pv=CONV.filter(x=>inMonth(x,1));
+      const pv=CONV.filter(x=>inMonth(x,1)&&!x.adj);
       pp.i+=pv.filter(x=>x.from===OUTSIDE).reduce((a,b)=>a+b.amt,0);
       pp.o+=pv.filter(x=>x.to===OUTSIDE).reduce((a,b)=>a+b.amt,0);
       pp.net=pp.i-pp.o; }
@@ -1898,19 +1923,60 @@ function renderSpend(){
 function feed(){
   const a=TX.map(t=>({...t,type:"tx"}));
   CONV.forEach(c=>a.push({id:c.id,date:c.date,type:"conv",amt:c.amt,ent:"PRIBADI",
-    who:c.from+" → "+c.to,cat:"Konversi aset",note:c.note}));
+    who:c.from+" → "+c.to,
+    cat:c.adj==="mkt"?"Untung/rugi pasar":c.adj==="fix"?"Koreksi saldo":"Konversi aset",
+    note:c.note}));
   SAV.entries.forEach(s=>a.push({id:s.id,date:s.date,type:"sav",amt:s.amt,ent:"PRIBADI",
     who:s.amt>=0?"Setor ke tabungan":"Tarik dari tabungan",cat:"Tabungan",note:s.from?("dari "+s.from):""}));
   return a;
 }
+const JLBL={in:"Pemasukan",out:"Pengeluaran",conv:"Konversi aset",sav:"Tabungan"};
+const JCOL={in:"var(--jade)",out:"var(--rose)",conv:"var(--gold)",sav:"var(--gold)"};
+function cocokJenis(t){
+  if(jenis==="all")return true;
+  if(jenis==="conv")return t.type==="conv";
+  if(jenis==="sav")return t.type==="sav";
+  return t.type==="tx"&&t.k===jenis;
+}
+// nilai satu baris menurut filter yang aktif
+function nilaiBaris(t){
+  if(jenis==="all")return t.type==="tx"?(t.k==="in"?t.amt:-t.amt):0;
+  if(jenis==="out")return -Math.abs(t.amt);
+  if(jenis==="sav")return t.amt;          // setor positif, tarik negatif
+  return Math.abs(t.amt);
+}
+const totalBaris=list=>list.reduce((a,t)=>a+nilaiBaris(t),0);
+function tulisTotal(n){
+  const tanda=jenis==="conv"?"":(n<0?"−":"+");
+  return tanda+short(Math.abs(n));
+}
 function renderList(){
   const box=document.getElementById("listbox");
+  const sumBox=document.getElementById("listSum");
   const q=(document.getElementById("q").value||"").toLowerCase().trim();
   let data=feed();
   if(filt!=="all")data=data.filter(t=>t.ent===filt);
+  data=data.filter(cocokJenis);
   if(q)data=data.filter(t=>((t.who||"")+" "+t.cat+" "+(t.note||"")).toLowerCase().includes(q));
+  // ringkasan di atas daftar, hanya kalau sedang menyaring satu jenis
+  if(jenis==="all"){ sumBox.style.display="none"; sumBox.innerHTML="" }
+  else{
+    const tot=totalBaris(data);
+    let ket=filt==="all"?"Pribadi + komunitas":(filt==="KOMUNITAS"?"Hanya komunitas":"Hanya pribadi");
+    if(q)ket+=" · pencarian \""+esc(q)+"\"";
+    if(jenis==="sav")ket+=" · setoran dikurangi penarikan";
+    if(jenis==="conv"){
+      const rev=data.filter(t=>{const c=CONV.find(x=>String(x.id)===String(t.id));return c&&c.adj}).length;
+      if(rev)ket+=" · termasuk "+rev+" revaluasi/koreksi (bukan arus kas)";
+    }
+    sumBox.style.display="block";
+    sumBox.innerHTML='<div class="sumcard"><div class="sl"><span class="st">'+JLBL[jenis]+
+      '</span><span class="pill">'+data.length+' catatan</span></div>'+
+      '<div class="sv" style="color:'+JCOL[jenis]+'">'+(tot<0?"−":"")+rp(Math.abs(tot))+'</div>'+
+      '<div class="sn">'+ket+'</div></div>';
+  }
   if(!data.length){box.innerHTML='<div class="empty"><div class="e1">'+(q?"Tidak ditemukan":"Belum ada catatan")+
-    '</div><p>'+(q?"Coba kata kunci lain.":"Catat uang masuk atau keluar di tab Catat.")+'</p></div>';return}
+    '</div><p>'+(q?"Coba kata kunci lain.":(jenis==="all"?"Catat uang masuk atau keluar di tab Catat.":"Belum ada "+JLBL[jenis].toLowerCase()+" di filter ini."))+'</p></div>';return}
   data.sort((a,b)=>b.date.localeCompare(a.date)||String(b.id).localeCompare(String(a.id)));
   const wk={};
   data.forEach(t=>{const d=new Date(t.date+"T00:00:00");const mon=new Date(d);
@@ -1918,14 +1984,20 @@ function renderList(){
   let h="";
   Object.keys(wk).sort((a,b)=>b.localeCompare(a)).forEach(k=>{
     const list=wk[k];
-    const net=list.reduce((a,t)=>a+(t.type==="tx"?(t.k==="in"?t.amt:-t.amt):0),0);
+    const net=totalBaris(list);
     const mon=new Date(k+"T00:00:00"), sun=new Date(mon); sun.setDate(mon.getDate()+6);
+    const wcls=jenis==="conv"||jenis==="sav"?"gold":(net<0?"rose":"jade");
     h+='<div class="wkhead"><span class="wl">'+mon.getDate()+" "+IDMON[mon.getMonth()].slice(0,3)+
-       " – "+sun.getDate()+" "+IDMON[sun.getMonth()].slice(0,3)+'</span><span class="wv '+(net<0?"rose":"jade")+'">'+
-       (net<0?"−":"+")+short(Math.abs(net))+'</span></div>';
+       " – "+sun.getDate()+" "+IDMON[sun.getMonth()].slice(0,3)+'</span><span class="wv '+wcls+'">'+
+       tulisTotal(net)+'</span></div>';
     const byd={}; list.forEach(t=>(byd[t.date]=byd[t.date]||[]).push(t));
     Object.keys(byd).sort((a,b)=>b.localeCompare(a)).forEach(d=>{
-      h+='<div class="daylbl">'+dfmt(d)+'</div>';
+      if(jenis==="all"){ h+='<div class="daylbl">'+dfmt(d)+'</div>' }
+      else{
+        const sub=totalBaris(byd[d]);
+        h+='<div class="daylbl sum"><span>'+dfmt(d)+'</span>'+
+           '<span class="dv" style="color:'+JCOL[jenis]+'">'+tulisTotal(sub)+'</span></div>';
+      }
       byd[d].forEach(t=>{
         const isTx=t.type==="tx";
         const cls=isTx?(t.k==="in"?"in":"out"):"out";
@@ -1949,7 +2021,7 @@ function renderList(){
     if(!confirm("Hapus catatan ini?"))return;
     const t=TX.find(x=>String(x.id)===String(b.dataset.id));
     if(t){ if(t.asset)bumpAsset(t.asset,t.k==="in"?-t.amt:t.amt);
-      syncMemberFromTx(t,-1); syncPiutFromTx(t,-1); }
+      syncMemberFromTx(t,-1); syncPiutFromTx(t,-1); syncKas(t,-1); }
     TX=TX.filter(x=>String(x.id)!==String(b.dataset.id));
     await DB.save(); toast("Catatan dihapus"); render();
   });
@@ -2187,7 +2259,7 @@ function clearEdit(){
 function editAsset(name){
   const p=PORT.find(x=>x.name===name); if(!p)return;
   paEditName=p.name; paType=p.type;
-  paCur=p.usd?"usd":"idr";
+  paCur=isUsdAsset(p)?"usd":"idr";
   document.querySelectorAll("#paCurSeg button").forEach(x=>x.classList.toggle("on",x.dataset.c===paCur));
   document.getElementById("paIdrWrap").style.display=paCur==="idr"?"block":"none";
   document.getElementById("paUsdWrap").style.display=paCur==="usd"?"block":"none";
@@ -2300,12 +2372,13 @@ document.getElementById("paSave").onclick=async()=>{
   const usd=paCur==="usd"?(parseFloat(String(document.getElementById("paUsd").value).replace(",","."))||0):0;
   const v=paCur==="usd"?0:numOf("paVal");
   const q=document.getElementById("paQty").value.trim();
-  let msg="Aset ditambahkan";
+  const cur=paCur==="usd"?"usd":"idr";
+  let msg="Aset ditambahkan", lama=null, target=null;
   if(paEditName){
     const i=PORT.findIndex(p=>p.name===paEditName);
     if(i>=0){
-      const oldName=PORT[i].name;
-      PORT[i]={name:n,type:paType,val:v,usd:usd,qty:q};
+      const oldName=PORT[i].name; lama=pVal(PORT[i]);
+      PORT[i]={name:n,type:paType,val:v,usd:usd,qty:q,cur:cur}; target=PORT[i];
       if(oldName!==n){
         CONV.forEach(c=>{if(c.from===oldName)c.from=n; if(c.to===oldName)c.to=n});
         SAV.entries.forEach(s=>{if(s.from===oldName)s.from=n});
@@ -2316,12 +2389,58 @@ document.getElementById("paSave").onclick=async()=>{
     clearAssetEdit();
   }else{
     const ix=PORT.findIndex(p=>p.name.toLowerCase()===n.toLowerCase());
-    if(ix>=0){PORT[ix]={name:n,type:paType,val:v,usd:usd,qty:q};msg="Aset diperbarui"}
-    else PORT.push({name:n,type:paType,val:v,usd:usd,qty:q});
+    if(ix>=0){ lama=pVal(PORT[ix]); PORT[ix]={name:n,type:paType,val:v,usd:usd,qty:q,cur:cur}; target=PORT[ix]; msg="Aset diperbarui" }
+    else PORT.push({name:n,type:paType,val:v,usd:usd,qty:q,cur:cur});
     ["paName","paVal","paQty","paUsd"].forEach(i=>document.getElementById(i).value="");
   }
   await DB.save(); toast(msg); render();
+  if(target&&lama!==null){
+    const delta=pVal(target)-lama;
+    if(delta)tanyaAlasanAset(target.name,delta,lama);
+  }
 };
+
+/* ── pop-up alasan perubahan saldo aset ──
+   setiap perubahan nilai portofolio wajib punya jejak, dan jejaknya
+   nyambung ke tab Riwayat (transaksi atau konversi) ── */
+function tanyaAlasanAset(nama,delta,lama){
+  const naik=delta>0, abs=Math.abs(delta);
+  const rows=[["Sebelum",rp(lama)],["Sesudah",rp(lama+delta)],["Selisih",(naik?"+":"−")+rp(abs)]];
+  const lewatTx=kind=>{
+    closeD();
+    openSheet("Masuk catatan mana?",["PRIBADI","KOMUNITAS"],"PRIBADI",e=>{
+      openSheet("Kategori "+(kind==="in"?"pemasukan":"pengeluaran"),CAT[e][kind],CAT[e][kind][0],async c=>{
+        const rec={id:Date.now()+"_adj",k:kind,amt:abs,who:"Penyesuaian "+nama,cat:c,ent:e,
+          asset:"",adj:true,date:ymd(new Date()),note:"dari perubahan saldo "+nama};
+        TX.push(rec); syncKas(rec,+1);
+        await DB.save(); sOk();
+        toast((kind==="in"?"Pemasukan ":"Pengeluaran ")+rp(abs)+" masuk Riwayat"); render();
+      });
+    });
+  };
+  const lewatPindah=()=>{
+    const lain=assetNames().filter(x=>x!==nama);
+    closeD();
+    if(!lain.length){toast("Belum ada aset lain");sErr();return}
+    openSheet(naik?"Pindahan dari aset mana?":"Pindah ke aset mana?",lain,null,async v=>{
+      bumpAsset(v,-delta);
+      CONV.push({id:Date.now()+"_adj",date:ymd(new Date()),
+        from:naik?v:nama,to:naik?nama:v,amt:abs,note:"pindah antar aset"});
+      await DB.save(); sOk(); toast("Dicatat pindah "+rp(abs)+" · saldo "+v+" ikut disesuaikan"); render();
+    },true);
+  };
+  const lewatTanda=(jenis,note)=>async()=>{
+    CONV.push({id:Date.now()+"_adj",date:ymd(new Date()),
+      from:naik?OUTSIDE:nama,to:naik?nama:OUTSIDE,amt:abs,note:note,adj:jenis});
+    closeD(); await DB.save(); sOk();
+    toast(note.charAt(0).toUpperCase()+note.slice(1)+" "+rp(abs)+" dicatat"); render();
+  };
+  showD("Kenapa saldonya berubah?",nama,(naik?"+":"−")+rp(abs),naik?"jade":"rose",rows,
+    [[naik?"Pemasukan":"Pengeluaran",()=>lewatTx(naik?"in":"out"),true],
+     [naik?"Pindahan dari aset lain":"Pindah ke aset lain",lewatPindah],
+     [naik?"Untung pasar":"Rugi pasar",lewatTanda("mkt",naik?"untung pasar":"rugi pasar")],
+     ["Koreksi salah catat",lewatTanda("fix","koreksi pencatatan")]],false);
+}
 document.getElementById("cvSave").onclick=async()=>{
   const amt=numOf("cvAmt");
   if(!cvFrom||!cvTo){toast("Asal dan tujuan belum dipilih");return}
@@ -2371,6 +2490,7 @@ segWire("viewSeg",b=>{view=b.dataset.v;
 segWire("entSeg",b=>{ent=b.dataset.e;syncForm()});
 segWire("kindSeg",b=>{kind=b.dataset.k;syncForm()});
 segWire("filtSeg",b=>{filt=b.dataset.f;renderList()});
+segWire("jenisSeg",b=>{jenis=b.dataset.j;renderList()});
 segWire("spSeg",b=>{spRange=b.dataset.s;renderSpend()});
 segWire("perSeg",b=>{chartDays=parseInt(b.dataset.d,10);buildChart()});
 document.getElementById("q").oninput=renderList;
@@ -2573,7 +2693,7 @@ document.getElementById("mvMax").onclick=()=>{
 document.getElementById("mvGo").onclick=async()=>{
   if(!mvSrc){return}
   if(!mvTo){toast("Tujuan belum dipilih");sErr();return}
-  const isUsd=!!mvSrc.usd;
+  const isUsd=isUsdAsset(mvSrc);
   const raw=document.getElementById("mvAmt").value;
   const amt=isUsd?(parseFloat(String(raw).replace(",","."))||0):(parseInt(String(raw).replace(/\D/g,""),10)||0);
   if(!amt){toast("Jumlah belum diisi");sErr();return}
@@ -2583,10 +2703,11 @@ document.getElementById("mvGo").onclick=async()=>{
   let dst=PORT.find(p=>p.name===namaTo);
   if(!dst){
     const tipe=/futures/i.test(namaTo)?"Futures":/usdt|stable/i.test(namaTo)?"Stablecoin":/kas|bca|rekening/i.test(namaTo)?"Kas rupiah":"Lainnya";
-    dst={name:namaTo,type:tipe,val:0,usd:isUsd?0:undefined,qty:""};
+    dst={name:namaTo,type:tipe,val:0,usd:0,qty:"",
+         cur:(isUsd||/futures|stable/i.test(tipe))?"usd":"idr"};
     PORT.push(dst);
   }
-  const dstUsd=(dst.usd!==undefined&&dst.usd!==null)||/futures|stable/i.test(dst.type);
+  const dstUsd=isUsdAsset(dst);
   if(isUsd){
     mvSrc.usd=+(mvSrc.usd-amt).toFixed(4);
     if(dstUsd)dst.usd=+((dst.usd||0)+amt).toFixed(4);
@@ -2605,29 +2726,56 @@ document.getElementById("mvGo").onclick=async()=>{
 };
 
 /* ── tukar data member saja ── */
-document.getElementById("memCopy").onclick=()=>{
-  const p={memOnly:true,ts:new Date().toISOString(),count:MEM.length,mem:MEM};
-  copyText(JSON.stringify(p,null,1),"Data "+MEM.length+" member tersalin");
-  sOk();
+function memPayload(){
+  return JSON.stringify({memOnly:true,ts:new Date().toISOString(),count:MEM.length,mem:MEM});
+}
+document.getElementById("memCopy").onclick=async()=>{
+  const ok=await copyText(memPayload(),"Data "+MEM.length+" member tersalin");
+  ok?sOk():sErr();
 };
-document.getElementById("memGo").onclick=async()=>{
-  const t=document.getElementById("memPaste").value.trim();
-  if(!t){toast("Tempel dulu datanya");sErr();return}
-  let o;
-  try{ o=JSON.parse(t) }catch(e){ toast("Format tidak dikenali");sErr();return }
-  if(!o||!Array.isArray(o.mem)){toast("Ini bukan data member");sErr();return}
-  if(!o.memOnly){
-    if(!confirm("PERINGATAN\n\nIni file cadangan LENGKAP, bukan data member saja.\n\nKalau diteruskan, HANYA bagian member yang diambil. Transaksi, aset, hutang, dan tabungan kamu TIDAK akan berubah.\n\nLanjutkan?"))return;
+document.getElementById("memFileDl").onclick=()=>{
+  const b=new Blob([memPayload()],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(b);
+  a.download="fnc-member-"+ymd(new Date())+".json"; a.click();
+  sOk(); toast("File "+MEM.length+" member diunduh");
+};
+async function applyMem(raw){
+  let t=String(raw||"").trim();
+  if(!t){toast("Tempel dulu datanya");sErr();return false}
+  // buang pembungkus dari WhatsApp/chat (```json, teks pengantar, dll)
+  const a=t.indexOf("{"), b=t.lastIndexOf("}");
+  if(a>0||(b>-1&&b<t.length-1)){ if(a>-1&&b>a) t=t.slice(a,b+1) }
+  let o=null;
+  try{ o=JSON.parse(t) }catch(e){ o=null }
+  if(!o){
+    const asli=String(raw||"").trim();
+    const terpotong=asli.length>2000&&!asli.endsWith("}");
+    toast(terpotong?"Teks terpotong saat dikirim — pakai file":"Format tidak dikenali");
+    sErr(); return false;
   }
-  if(o.tx||o.port||o.hut){
-    // pastikan tidak ada yang tertimpa
+  if(!Array.isArray(o.mem)){toast("Ini bukan data member");sErr();return false}
+  if(!o.memOnly){
+    if(!confirm("PERINGATAN\n\nIni file cadangan LENGKAP, bukan data member saja.\n\nKalau diteruskan, HANYA bagian member yang diambil. Transaksi, aset, hutang, dan tabungan kamu TIDAK akan berubah.\n\nLanjutkan?"))return false;
+  }
+  if(typeof o.count==="number"&&o.count!==o.mem.length){
+    if(!confirm("Data tidak lengkap.\n\nSeharusnya "+o.count+" member, yang terbaca "+o.mem.length+".\nBesar kemungkinan teksnya terpotong saat dikirim.\n\nTetap masukkan?"))return false;
   }
   const jml=o.mem.length;
-  if(!confirm("Ganti daftar member dengan "+jml+" data dari tim?\n\nHanya daftar member yang berubah. Transaksi, aset, hutang, dan tabungan tetap utuh."))return;
+  if(!confirm("Ganti daftar member dengan "+jml+" data dari tim?\n\nHanya daftar member yang berubah. Transaksi, aset, hutang, dan tabungan tetap utuh."))return false;
   MEM=o.mem; MEMV4=true;
   await DB.save();
+  const cek=await DB.load();
+  if(!cek||!(cek.mem||[]).length){ toast("Gagal menyimpan di HP ini — cek ruang penyimpanan"); sErr(); return false }
   document.getElementById("memPaste").value="";
-  sOk(); toast("Data member diperbarui — "+jml+" member"); render();
+  sOk(); toast("Data member diperbarui — "+jml+" member"); render(); return true;
+}
+document.getElementById("memGo").onclick=()=>applyMem(document.getElementById("memPaste").value);
+document.getElementById("memFile").onchange=e=>{
+  const f=e.target.files[0]; if(!f)return;
+  const r=new FileReader();
+  r.onload=async()=>{ await applyMem(r.result); e.target.value="" };
+  r.onerror=()=>{ toast("File tidak terbaca"); sErr() };
+  r.readAsText(f);
 };
 
 /* ── piutang pribadi ── */
@@ -2836,12 +2984,29 @@ document.getElementById("fmtBtn").onclick=()=>openSheet("Format ekspor",
 
 /* ═══════ backup ═══════ */
 function payload(){return JSON.stringify({v:5,ts:new Date().toISOString(),tx:TX,port:PORT,conv:CONV,mem:MEM,piut:PIUT,kas:KAS,sav:SAV},null,2)}
-function copyText(txt,msg){
-  const ta=document.createElement("textarea"); ta.value=txt;
-  ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta);
-  ta.select(); ta.setSelectionRange(0,999999);
-  try{document.execCommand("copy");toast(msg)}catch(e){toast("Salin manual dari kotak")}
-  document.body.removeChild(ta);
+async function copyText(txt,msg){
+  let ok=false;
+  try{
+    if(navigator.clipboard&&navigator.clipboard.writeText&&window.isSecureContext){
+      await navigator.clipboard.writeText(txt); ok=true;
+    }
+  }catch(e){ ok=false }
+  if(!ok){
+    const ta=document.createElement("textarea"); ta.value=txt;
+    ta.readOnly=false; ta.contentEditable="true";
+    ta.style.position="fixed"; ta.style.top="0"; ta.style.left="0";
+    ta.style.width="1px"; ta.style.height="1px"; ta.style.opacity="0";
+    document.body.appendChild(ta);
+    try{
+      const r=document.createRange(); r.selectNodeContents(ta);
+      const sel=window.getSelection(); sel.removeAllRanges(); sel.addRange(r);
+      ta.setSelectionRange(0,999999); ta.select();
+      ok=document.execCommand("copy")===true;
+    }catch(e){ ok=false }
+    document.body.removeChild(ta);
+  }
+  toast(ok?msg:"Gagal menyalin — pakai tombol Unduh file");
+  return ok;
 }
 document.getElementById("copy").onclick=()=>copyText(document.getElementById("exp").value,"Ringkasan tersalin");
 document.getElementById("bkCopy").onclick=()=>copyText(payload(),"Cadangan tersalin");
@@ -2885,13 +3050,19 @@ document.getElementById("wipe").onclick=async()=>{
 /* ═══════ init ═══════ */
 (async function(){
   const s=await DB.load();
-  if(s&&Array.isArray(s.tx)&&(s.tx.length||(s.port||[]).length)){
+  const punyaIsi=s&&(  (s.tx||[]).length || (s.port||[]).length || (s.mem||[]).length
+                     || (s.piut||[]).length || (s.hut||[]).length || (s.conv||[]).length
+                     || (s.kas&&(s.kas.entries||[]).length) || (s.sav&&(s.sav.entries||[]).length)
+                     || s.saved===true );
+  if(s&&Array.isArray(s.tx)&&punyaIsi){
     TX=s.tx; PORT=s.port||[]; CONV=s.conv||[];
     KAS=(s.kas&&Array.isArray(s.kas.entries))?s.kas:{saldo:0,entries:[]};
     HUT=(s.hut&&s.hut.length)?s.hut:SEED_HUT.map(x=>({nama:x[0],jenis:x[1],val:x[2],due:x[3],pokok:x[4],ret:x[5],note:x[6]}));
     HUTB=(s.hutb&&s.hutb.length)?s.hutb:SEED_HUTBAYAR.map(x=>({nama:x[0],date:x[1],amt:x[2],note:x[3],tipe:x[4]||'pokok'}));
     PIUT=(s.piut&&s.piut.length)?s.piut:SEED_PIUT.map(x=>({nama:x[0],jenis:x[1],val:x[2],due:x[3],cara:x[4],wa:x[5],note:x[6]}));
-    MEM=(s.mem&&s.mem.length&&s.memv===4)?s.mem:SEED_MEM.map(x=>({nama:x[0],paket:x[1],sisa:x[2],cicilan:x[3],status:x[4],aktif:!!x[5],masa:x[6],due:x[7],wa:x[8],note:x[9]}));
+    MEM=(s.mem&&s.mem.length&&s.memv===4)?s.mem
+        :(SEED_MEM.length?SEED_MEM.map(x=>({nama:x[0],paket:x[1],sisa:x[2],cicilan:x[3],status:x[4],aktif:!!x[5],masa:x[6],due:x[7],wa:x[8],note:x[9]}))
+                         :(s.mem||[]));
     SAV=s.sav&&Array.isArray(s.sav.entries)?s.sav:{target:0,name:"",entries:[]};
     theme=s.theme||"dark"; if(typeof s.inclConv==="boolean")inclConv=s.inclConv; if(s.kurs)KURS=s.kurs;
     MEMV4=(s.memv===4);
@@ -2910,6 +3081,7 @@ document.getElementById("wipe").onclick=async()=>{
   }
   // migrasi data lama
   let mig=false;
+  PORT.forEach(p=>{ if(!p.cur){ p.cur=(p.usd&&p.usd!==0)?"usd":"idr"; mig=true } });
   if(!MEMV4)mig=true;
   TX.forEach(t=>{ if(t.cat==="Biaya hidup"&&/tools|langganan/i.test(t.who||"")){t.ent="KOMUNITAS";t.cat="Tools & subscription";mig=true} });
   const dad=TX.filter(t=>t.cat==="Modal Dad"&&t.date.startsWith("2026-08"));
@@ -2926,6 +3098,7 @@ document.getElementById("wipe").onclick=async()=>{
 
   // MIGRASI v4: perbarui daftar member dari data audit terbaru,
   // pertahankan pembayaran & member yang ditambah manual
+  if(!MEMV4&&!SEED_MEM.length){ MEMV4=true; mig=true; }
   if(!MEMV4){
     const fresh=SEED_MEM.map(x=>({nama:x[0],paket:x[1],sisa:x[2],cicilan:x[3],status:x[4],
       aktif:!!x[5],masa:x[6],due:x[7],wa:x[8],note:x[9]}));
