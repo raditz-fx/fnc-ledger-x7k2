@@ -137,6 +137,9 @@ label{display:block;font-family:"IBM Plex Mono";font-size:10px;letter-spacing:.1
   position:fixed;inset:0;z-index:80;display:none;
   background:color-mix(in srgb,#000 52%,transparent);backdrop-filter:blur(3px);
 }
+/* pemilih opsi sering dibuka DARI dalam sheet lain (pindah aset, gaya pesan WA).
+   tanpa ini dia muncul di belakang dan terlihat seperti tombol yang tidak berfungsi. */
+#sheet{z-index:95}
 .sheet.on{display:block}
 .sheetin{
   position:absolute;left:0;right:0;bottom:0;max-height:74vh;overflow:auto;
@@ -1466,8 +1469,9 @@ function openMove(from){
   const p=PORT.find(x=>x.name===from); if(!p)return;
   mvSrc=p; mvTo="";
   document.getElementById("mvTitle").textContent="Pindahkan dari "+p.name;
-  document.getElementById("mvFrom").textContent=(p.usd?p.usd.toLocaleString("id-ID",{maximumFractionDigits:2})+" USD · ":"")+rp(pVal(p));
-  document.getElementById("mvLbl").textContent=p.usd?"Jumlah USD":"Nominal (Rp)";
+  const pUsd=isUsdAsset(p);
+  document.getElementById("mvFrom").textContent=(pUsd?(p.usd||0).toLocaleString("id-ID",{maximumFractionDigits:2})+" USD · ":"")+rp(pVal(p));
+  document.getElementById("mvLbl").textContent=pUsd?"Jumlah USD":"Nominal (Rp)";
   document.getElementById("mvAmt").value="";
   document.getElementById("mvHint").textContent="";
   setBtn("mvToBtn","Pilih tujuan",true);
@@ -2687,7 +2691,7 @@ document.getElementById("mvAmt").addEventListener("input",e=>{
 });
 document.getElementById("mvMax").onclick=()=>{
   if(!mvSrc)return;
-  document.getElementById("mvAmt").value=mvSrc.usd?mvSrc.usd:fmt(mvSrc.val||0);
+  document.getElementById("mvAmt").value=isUsdAsset(mvSrc)?(mvSrc.usd||0):fmt(mvSrc.val||0);
   document.getElementById("mvAmt").dispatchEvent(new Event("input"));
 };
 document.getElementById("mvGo").onclick=async()=>{
