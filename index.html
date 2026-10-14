@@ -148,7 +148,7 @@ a.wa{display:inline-flex;align-items:center;gap:5px;text-decoration:none;font-si
 /* ================= DATA ================= */
 const SEED = {"v": "L2", "settings": {"start": "2026-10-01", "cutoff": 24, "kasAwal": 0, "rate": 0.5, "porsi": {"kas": 0.1, "radit": 0.5, "yudhis": 0.2, "alip": 0.2}, "me": "Radit"}, "members": [], "tx": [], "tagihan": {}, "kasbon": [], "rutin": [{"nama": "Claude", "harga": 360000, "qty": 1}, {"nama": "ChatGPT Go", "harga": 70000, "qty": 1}, {"nama": "Google One", "harga": 45000, "qty": 2}, {"nama": "CapCut Pro", "harga": 50000, "qty": 2}]};
 const KEY = "fnc_ledger_l2";
-const JENIS_IN = ["Cicilan / pelunasan","Paket baru","DP paket baru","Perpanjangan paket","Upgrade paket","Lainnya"];
+const JENIS_IN = ["Cicilan / pelunasan","Paket baru (lunas)","DP paket baru","Perpanjangan paket","Upgrade paket","Lainnya"];
 const KAT_OUT = ["Langganan tools","Hosting & domain","Iklan & konten","Kuota & transport","Meet member / admin","Refund member","Biaya bank / admin","Lain-lain","Transfer bagi hasil"];
 const STAT_TAG = ["Belum dihubungi","Proses","Janji bayar","Sudah bayar","Tunda","Skip"];
 const STAT_MEM = ["AKTIF","TUNDA","MACET","LUNAS","BERJANGKA","REHAT","PERLU CEK","EXPIRED","DIKICK","WRITE-OFF"];
@@ -162,8 +162,11 @@ function load(){
   if(raw){try{S=JSON.parse(raw)}catch(e){S=null}}
   if(!S||S.v!=="L2"){S=clone(SEED)}
   S.tagihan=S.tagihan||{}; S.kasbon=S.kasbon||[]; S.rutin=S.rutin||[]; S.sentIds=S.sentIds||[];
+  normJenis();
 }
-function save(){try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Gagal menyimpan di perangkat ini")}}
+/* Samakan nama jenis dengan dropdown Excel (data lama / kiriman partner versi lama) */
+function normJenis(){(S.tx||[]).forEach(t=>{if(t.jenis==="Paket baru")t.jenis="Paket baru (lunas)"})}
+function save(){normJenis();try{localStorage.setItem(KEY,JSON.stringify(S))}catch(e){toast("Gagal menyimpan di perangkat ini")}}
 
 /* ================= UTIL ================= */
 const $=s=>document.querySelector(s);
